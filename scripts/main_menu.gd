@@ -68,8 +68,8 @@ func _build_ui() -> void:
 	# Controls hint
 	var hint := Label.new()
 	hint.text = (
-		"Controls:  WASD – move   Mouse – look   LMB – attack\n"
-		+ "RMB – block   Space – jump   Shift – sprint   ESC – cursor"
+		"Controls:  WASD – move   Mouse – look   LMB – attack   MMB – heavy attack\n"
+		+ "RMB – block   F – kick   Space – jump   Shift – sprint   Tab – scoreboard   ESC – cursor"
 	)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 13)

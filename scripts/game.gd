@@ -23,14 +23,14 @@ var _spawn_idx: int = 0
 
 
 func _ready() -> void:
+	add_to_group("game_manager")
+
 	if not multiplayer.is_server():
 		return
 
-	# Spawn all players that are already registered.
 	for pid in NetworkManager.players:
 		_spawn_player(pid)
 
-	# Spawn future joiners.
 	NetworkManager.player_joined.connect(_on_player_joined)
 	NetworkManager.player_left.connect(_on_player_left)
 
@@ -55,8 +55,6 @@ func _on_player_left(peer_id: int) -> void:
 		node.queue_free()
 
 
-## Called by player.gd _broadcast_death (call_local) when health hits 0.
-## Only the server drives global state.
 func on_player_killed(victim_id: int, killer_id: int) -> void:
 	if not multiplayer.is_server():
 		return
@@ -82,3 +80,21 @@ func _do_respawn(victim_id: int) -> void:
 func _show_kill_feed(killer: String, victim: String) -> void:
 	if hud and hud.has_method("show_kill"):
 		hud.show_kill(killer, victim)
+
+
+func get_scoreboard_data() -> Array:
+	var data: Array = []
+	for child in players_node.get_children():
+		data.append({
+			"name": child.player_name,
+			"kills": child.kills,
+			"deaths": child.deaths,
+			"health": child.health,
+		})
+	data.sort_custom(func(a, b): return a.kills > b.kills)
+	return data
+
+
+func return_to_menu() -> void:
+	NetworkManager.leave_game()
+	get_tree().change_scene_to_file("res://main.tscn")
