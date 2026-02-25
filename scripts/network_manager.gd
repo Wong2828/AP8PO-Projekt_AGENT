@@ -7,6 +7,11 @@ const MAX_PLAYERS := 8
 var players: Dictionary = {}
 var local_player_name: String = "Warrior"
 
+# Bot practice mode settings
+var is_bot_practice_mode: bool = false
+var bot_count: int = 3
+var bot_difficulty: int = 1  # 0 = Easy, 1 = Medium, 2 = Hard
+
 signal player_joined(peer_id: int)
 signal player_left(peer_id: int)
 signal connected_to_server()
@@ -44,9 +49,19 @@ func join_game(address: String) -> Error:
 
 func leave_game() -> void:
 	players.clear()
+	is_bot_practice_mode = false
 	if multiplayer.multiplayer_peer:
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = null
+
+
+func start_bot_practice(num_bots: int = 3, difficulty: int = 1) -> void:
+	players.clear()
+	players[1] = {name = local_player_name}
+	is_bot_practice_mode = true
+	bot_count = num_bots
+	bot_difficulty = difficulty
+	# No network peer needed for offline mode
 
 
 # ---- internal signal handlers ----

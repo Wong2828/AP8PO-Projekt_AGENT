@@ -6,6 +6,10 @@ var _addr_edit: LineEdit
 var _status: Label
 var _host_btn: Button
 var _join_btn: Button
+var _practice_btn: Button
+var _bot_count_slider: HSlider
+var _bot_count_label: Label
+var _difficulty_option: OptionButton
 
 
 func _ready() -> void:
@@ -65,6 +69,72 @@ func _build_ui() -> void:
 	_host_btn = _button(hbox, "HOST GAME", _on_host_pressed)
 	_join_btn = _button(hbox, "JOIN GAME", _on_join_pressed)
 
+	_spacer(vbox, 10)
+	
+	# Bot Practice Section
+	var practice_label := Label.new()
+	practice_label.text = "─── PRACTICE WITH BOTS ───"
+	practice_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	practice_label.add_theme_font_size_override("font_size", 16)
+	practice_label.add_theme_color_override("font_color", Color(0.75, 0.55, 0.15))
+	vbox.add_child(practice_label)
+	
+	# Bot count slider
+	var bot_hbox := HBoxContainer.new()
+	bot_hbox.add_theme_constant_override("separation", 10)
+	vbox.add_child(bot_hbox)
+	
+	var bot_label := Label.new()
+	bot_label.text = "Number of Bots:"
+	bot_label.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85))
+	bot_label.custom_minimum_size = Vector2(120, 0)
+	bot_hbox.add_child(bot_label)
+	
+	_bot_count_slider = HSlider.new()
+	_bot_count_slider.min_value = 1
+	_bot_count_slider.max_value = 7
+	_bot_count_slider.value = 3
+	_bot_count_slider.step = 1
+	_bot_count_slider.custom_minimum_size = Vector2(180, 0)
+	_bot_count_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_bot_count_slider.value_changed.connect(_on_bot_count_changed)
+	bot_hbox.add_child(_bot_count_slider)
+	
+	_bot_count_label = Label.new()
+	_bot_count_label.text = "3"
+	_bot_count_label.add_theme_color_override("font_color", Color(0.95, 0.75, 0.15))
+	_bot_count_label.custom_minimum_size = Vector2(30, 0)
+	bot_hbox.add_child(_bot_count_label)
+	
+	# Difficulty selection
+	var diff_hbox := HBoxContainer.new()
+	diff_hbox.add_theme_constant_override("separation", 10)
+	vbox.add_child(diff_hbox)
+	
+	var diff_label := Label.new()
+	diff_label.text = "Bot Difficulty:"
+	diff_label.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85))
+	diff_label.custom_minimum_size = Vector2(120, 0)
+	diff_hbox.add_child(diff_label)
+	
+	_difficulty_option = OptionButton.new()
+	_difficulty_option.add_item("Easy", 0)
+	_difficulty_option.add_item("Medium", 1)
+	_difficulty_option.add_item("Hard", 2)
+	_difficulty_option.select(1)  # Default to Medium
+	_difficulty_option.custom_minimum_size = Vector2(0, 36)
+	_difficulty_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	diff_hbox.add_child(_difficulty_option)
+	
+	# Practice button
+	_practice_btn = Button.new()
+	_practice_btn.text = "⚔  START PRACTICE  ⚔"
+	_practice_btn.custom_minimum_size = Vector2(0, 52)
+	_practice_btn.pressed.connect(_on_practice_pressed)
+	vbox.add_child(_practice_btn)
+
+	_spacer(vbox, 5)
+
 	# Controls hint
 	var hint := Label.new()
 	hint.text = (
@@ -113,6 +183,19 @@ func _on_join_pressed() -> void:
 		_set_buttons(true)
 
 
+func _on_practice_pressed() -> void:
+	_apply_name()
+	var bot_count := int(_bot_count_slider.value)
+	var difficulty := _difficulty_option.get_selected_id()
+	_set_status("Starting practice with %d bots…" % bot_count, Color(0.9, 0.9, 0.4))
+	NetworkManager.start_bot_practice(bot_count, difficulty)
+	_start_game()
+
+
+func _on_bot_count_changed(value: float) -> void:
+	_bot_count_label.text = str(int(value))
+
+
 func _on_connected() -> void:
 	_start_game()
 
@@ -146,6 +229,7 @@ func _set_status(msg: String, col: Color) -> void:
 func _set_buttons(enabled: bool) -> void:
 	_host_btn.disabled = not enabled
 	_join_btn.disabled = not enabled
+	_practice_btn.disabled = not enabled
 
 
 func _spacer(parent: Control, h: int) -> void:

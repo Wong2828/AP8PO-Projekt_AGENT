@@ -126,12 +126,21 @@ func _ready() -> void:
 		player_name = NetworkManager.players[player_peer_id].name
 	name_label.text = player_name
 
-	set_multiplayer_authority(player_peer_id)
-	sync_node.set_multiplayer_authority(player_peer_id)
+	# In bot practice mode, only the local player (ID 1) has authority
+	if NetworkManager.is_bot_practice_mode:
+		if player_peer_id == 1:
+			set_multiplayer_authority(1)
+			sync_node.set_multiplayer_authority(1)
+		# Bots don't need multiplayer authority since they're controlled by AI
+	else:
+		set_multiplayer_authority(player_peer_id)
+		sync_node.set_multiplayer_authority(player_peer_id)
 
 	add_to_group("players")
 
-	if is_multiplayer_authority():
+	# Setup camera and visibility for the local player
+	var is_local_player := player_peer_id == 1 if NetworkManager.is_bot_practice_mode else is_multiplayer_authority()
+	if is_local_player:
 		camera.current = true
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 		body_mesh.visible = false
@@ -140,8 +149,14 @@ func _ready() -> void:
 
 # ---- input (authority only) ----
 
+func _is_local_player() -> bool:
+	if NetworkManager.is_bot_practice_mode:
+		return player_peer_id == 1
+	return is_multiplayer_authority()
+
+
 func _input(event: InputEvent) -> void:
-	if not is_multiplayer_authority():
+	if not _is_local_player():
 		return
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		rotate_y(-event.relative.x * MOUSE_SENS)
@@ -159,7 +174,7 @@ func _physics_process(delta: float) -> void:
 	# Animate sword swing on all peers.
 	_update_swing(delta)
 
-	if not is_multiplayer_authority() or is_dead:
+	if not _is_local_player() or is_dead:
 		return
 	
 	# Update timers
@@ -299,7 +314,10 @@ func _handle_combat_input() -> void:
 	elif Input.is_action_just_pressed("kick") and stamina >= STAMINA_KICK_COST:
 		atk_timer = KICK_CD
 		stamina -= STAMINA_KICK_COST
-		_do_kick.rpc()
+		if NetworkManager.is_bot_practice_mode:
+			_do_kick()
+		else:
+			_do_kick.rpc()
 
 
 func _get_directional_attack() -> int:
@@ -352,10 +370,13 @@ func _perform_attack(attack_type: int) -> void:
 	current_attack = attack_type
 	
 	attack_started.emit(attack_type)
-	_do_directional_attack.rpc(attack_type)
+	if NetworkManager.is_bot_practice_mode:
+		_do_directional_attack(attack_type)
+	else:
+		_do_directional_attack.rpc(attack_type)
 	
 	# Play swing sound locally
-	if is_multiplayer_authority():
+	if _is_local_player():
 		AudioManager.play_swing(attack_type == AttackType.HEAVY)
 
 
@@ -379,10 +400,11 @@ func _perform_dodge(direction: Vector3) -> void:
 	_dodge_direction = direction.normalized()
 	stamina -= STAMINA_DODGE_COST
 	dodge_performed.emit()
-	_broadcast_dodge.rpc()
+	if not NetworkManager.is_bot_practice_mode:
+		_broadcast_dodge.rpc()
 	
 	# Play dodge sound locally
-	if is_multiplayer_authority():
+	if _is_local_player():
 		AudioManager.play_dodge()
 
 
@@ -396,7 +418,7 @@ func apply_stagger() -> void:
 		sword_pivot.rotation = Vector3.ZERO
 	
 	# Play stagger sound and effect
-	if is_multiplayer_authority():
+	if _is_local_player():
 		AudioManager.play_stagger()
 	VFXManager.create_stagger_effect(global_position)
 
@@ -472,7 +494,11 @@ func _do_directional_attack(attack_type: int) -> void:
 		if team > 0 and body.has_method("get_team") and body.get_team() == team:
 			continue
 		var target: CharacterBody3D = body
-		target.receive_hit.rpc_id(target.player_peer_id, dmg, player_peer_id, attack_type)
+		# In offline bot mode, call directly instead of RPC
+		if NetworkManager.is_bot_practice_mode:
+			target.receive_hit(dmg, player_peer_id, attack_type)
+		else:
+			target.receive_hit.rpc_id(target.player_peer_id, dmg, player_peer_id, attack_type)
 		hit_someone = true
 	
 	if hit_someone:
@@ -510,7 +536,11 @@ func _do_attack(heavy: bool) -> void:
 		if body == self or not body.has_method("receive_hit"):
 			continue
 		var target: CharacterBody3D = body
-		target.receive_hit.rpc_id(target.player_peer_id, dmg, player_peer_id, current_attack)
+		# In offline bot mode, call directly instead of RPC
+		if NetworkManager.is_bot_practice_mode:
+			target.receive_hit(dmg, player_peer_id, current_attack)
+		else:
+			target.receive_hit.rpc_id(target.player_peer_id, dmg, player_peer_id, current_attack)
 
 
 @rpc("any_peer", "call_local", "reliable")
@@ -526,7 +556,11 @@ func _do_kick() -> void:
 		if team > 0 and body.has_method("get_team") and body.get_team() == team:
 			continue
 		var target: CharacterBody3D = body
-		target.receive_kick.rpc_id(target.player_peer_id, KICK_DMG, player_peer_id)
+		# In offline bot mode, call directly instead of RPC
+		if NetworkManager.is_bot_practice_mode:
+			target.receive_kick(KICK_DMG, player_peer_id)
+		else:
+			target.receive_kick.rpc_id(target.player_peer_id, KICK_DMG, player_peer_id)
 	kick_col.disabled = true
 
 
@@ -543,6 +577,7 @@ func receive_hit(amount: int, attacker_id: int, attack_type: int = AttackType.SL
 	
 	var final_damage := amount
 	var was_parried := false
+	var is_local := _is_local_player()
 	
 	# Check for perfect parry
 	if _parry_active and is_blocking:
@@ -553,18 +588,21 @@ func receive_hit(amount: int, attacker_id: int, attack_type: int = AttackType.SL
 		parry_success.emit()
 		
 		# Play parry sound and effect
-		if is_multiplayer_authority():
+		if is_local:
 			AudioManager.play_block(true)
 		VFXManager.create_parry_effect(global_position + Vector3(0, 1.5, 0))
 		
 		# Stagger the attacker on parry
 		var attacker := get_parent().get_node_or_null(str(attacker_id))
 		if attacker and attacker.has_method("apply_stagger"):
-			attacker.apply_stagger.rpc_id(attacker_id)
+			if NetworkManager.is_bot_practice_mode:
+				attacker.apply_stagger()
+			else:
+				attacker.apply_stagger.rpc_id(attacker_id)
 	elif is_blocking:
 		final_damage = int(amount * BLOCK_MULT)
 		# Play block sound and effect
-		if is_multiplayer_authority():
+		if is_local:
 			AudioManager.play_block(false)
 		VFXManager.create_block_effect(global_position + Vector3(0, 1.5, 0))
 		# Heavy attacks and overheads can stagger through block
@@ -573,7 +611,7 @@ func receive_hit(amount: int, attacker_id: int, attack_type: int = AttackType.SL
 			final_damage = int(amount * 0.5)
 	else:
 		# Play hit sound and effect
-		if is_multiplayer_authority():
+		if is_local:
 			AudioManager.play_hit(attack_type in [AttackType.HEAVY, AttackType.OVERHEAD])
 		VFXManager.create_hit_effect(global_position + Vector3(0, 1.2, 0))
 		# Apply stagger on heavy hits when not blocking
@@ -584,11 +622,16 @@ func receive_hit(amount: int, attacker_id: int, attack_type: int = AttackType.SL
 	_last_damage_dealt = final_damage
 	_last_hit_was_parry = was_parried
 	
-	_broadcast_health.rpc(health)
-	_notify_hit.rpc_id(player_peer_id, attacker_id)
-	
-	if health == 0:
-		_broadcast_death.rpc(attacker_id)
+	if NetworkManager.is_bot_practice_mode:
+		_broadcast_health(health)
+		_notify_hit(attacker_id)
+		if health == 0:
+			_broadcast_death(attacker_id)
+	else:
+		_broadcast_health.rpc(health)
+		_notify_hit.rpc_id(player_peer_id, attacker_id)
+		if health == 0:
+			_broadcast_death.rpc(attacker_id)
 
 
 @rpc("any_peer", "reliable")
@@ -597,7 +640,7 @@ func receive_kick(_amount: int, attacker_id: int) -> void:
 		return
 	
 	# Play kick impact sound
-	if is_multiplayer_authority():
+	if _is_local_player():
 		AudioManager.play_kick()
 	
 	if is_blocking:
@@ -606,10 +649,17 @@ func receive_kick(_amount: int, attacker_id: int) -> void:
 		stamina = max(0.0, stamina - 30.0)
 		apply_stagger()
 	health = max(0, health - _amount)
-	_broadcast_health.rpc(health)
-	_notify_hit.rpc_id(player_peer_id, attacker_id)
-	if health == 0:
-		_broadcast_death.rpc(attacker_id)
+	
+	if NetworkManager.is_bot_practice_mode:
+		_broadcast_health(health)
+		_notify_hit(attacker_id)
+		if health == 0:
+			_broadcast_death(attacker_id)
+	else:
+		_broadcast_health.rpc(health)
+		_notify_hit.rpc_id(player_peer_id, attacker_id)
+		if health == 0:
+			_broadcast_death.rpc(attacker_id)
 
 
 @rpc("any_peer", "call_local", "reliable")
@@ -641,7 +691,7 @@ func _broadcast_death(killer_id: int) -> void:
 	AudioManager.play_death()
 	VFXManager.create_death_effect(global_position + Vector3(0, 1.0, 0))
 	
-	if is_multiplayer_authority():
+	if _is_local_player():
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	# Notify game manager via group instead of fragile parent chain.
 	for node in get_tree().get_nodes_in_group("game_manager"):
@@ -657,5 +707,5 @@ func do_respawn(pos: Vector3) -> void:
 	visible = true
 	global_position = pos
 	velocity = Vector3.ZERO
-	if is_multiplayer_authority():
+	if _is_local_player():
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
