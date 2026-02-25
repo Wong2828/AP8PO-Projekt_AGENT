@@ -67,6 +67,22 @@ properties/5/path = NodePath(".:is_dead")
 properties/5/spawn = true
 properties/5/sync = true
 properties/5/watch = false
+properties/6/path = NodePath(".:current_attack")
+properties/6/spawn = false
+properties/6/sync = true
+properties/6/watch = false
+properties/7/path = NodePath(".:_is_staggered")
+properties/7/spawn = false
+properties/7/sync = true
+properties/7/watch = false
+properties/8/path = NodePath(".:_is_dodging")
+properties/8/spawn = false
+properties/8/sync = true
+properties/8/watch = false
+properties/9/path = NodePath(".:team")
+properties/9/spawn = true
+properties/9/sync = false
+properties/9/watch = false
 
 [node name="Player" type="CharacterBody3D"]
 script = ExtResource("1_player")
