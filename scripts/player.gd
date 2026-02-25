@@ -92,6 +92,9 @@ var _stagger_timer: float  = 0.0
 # Audio cue variables
 var _last_hit_was_parry: bool = false
 var _last_damage_dealt: int = 0
+var _footstep_timer: float = 0.0
+const FOOTSTEP_INTERVAL := 0.4
+const SPRINT_FOOTSTEP_INTERVAL := 0.25
 
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
@@ -203,6 +206,14 @@ func _physics_process(delta: float) -> void:
 		velocity.z = move_toward(velocity.z, 0, spd)
 
 	move_and_slide()
+	
+	# Footstep sounds
+	if dir and is_on_floor():
+		var interval := SPRINT_FOOTSTEP_INTERVAL if is_sprinting else FOOTSTEP_INTERVAL
+		_footstep_timer -= delta
+		if _footstep_timer <= 0:
+			AudioManager.play_footstep(is_sprinting)
+			_footstep_timer = interval
 
 	# Stamina drain for sprinting (only while actually moving).
 	if is_sprinting and dir:
@@ -339,6 +350,10 @@ func _perform_attack(attack_type: int) -> void:
 	
 	attack_started.emit(attack_type)
 	_do_directional_attack.rpc(attack_type)
+	
+	# Play swing sound locally
+	if is_multiplayer_authority():
+		AudioManager.play_swing(attack_type == AttackType.HEAVY)
 
 
 func _cancel_attack() -> void:
@@ -362,6 +377,10 @@ func _perform_dodge(direction: Vector3) -> void:
 	stamina -= STAMINA_DODGE_COST
 	dodge_performed.emit()
 	_broadcast_dodge.rpc()
+	
+	# Play dodge sound locally
+	if is_multiplayer_authority():
+		AudioManager.play_dodge()
 
 
 func apply_stagger() -> void:
@@ -372,6 +391,10 @@ func apply_stagger() -> void:
 		_swing_active = false
 		_swing_progress = 0.0
 		sword_pivot.rotation = Vector3.ZERO
+	
+	# Play stagger sound
+	if is_multiplayer_authority():
+		AudioManager.play_stagger()
 
 
 # ---- sword swing animation ----
@@ -525,17 +548,27 @@ func receive_hit(amount: int, attacker_id: int, attack_type: int = AttackType.SL
 		_just_parried = true
 		parry_success.emit()
 		
+		# Play parry sound
+		if is_multiplayer_authority():
+			AudioManager.play_block(true)
+		
 		# Stagger the attacker on parry
 		var attacker := get_parent().get_node_or_null(str(attacker_id))
 		if attacker and attacker.has_method("apply_stagger"):
 			attacker.apply_stagger.rpc_id(attacker_id)
 	elif is_blocking:
 		final_damage = int(amount * BLOCK_MULT)
+		# Play block sound
+		if is_multiplayer_authority():
+			AudioManager.play_block(false)
 		# Heavy attacks and overheads can stagger through block
 		if attack_type in [AttackType.HEAVY, AttackType.OVERHEAD] and stamina < 20:
 			apply_stagger()
 			final_damage = int(amount * 0.5)
 	else:
+		# Play hit sound
+		if is_multiplayer_authority():
+			AudioManager.play_hit(attack_type in [AttackType.HEAVY, AttackType.OVERHEAD])
 		# Apply stagger on heavy hits when not blocking
 		if attack_type in [AttackType.HEAVY, AttackType.OVERHEAD]:
 			apply_stagger()
@@ -555,6 +588,11 @@ func receive_hit(amount: int, attacker_id: int, attack_type: int = AttackType.SL
 func receive_kick(_amount: int, attacker_id: int) -> void:
 	if is_dead or _is_dodging:
 		return
+	
+	# Play kick impact sound
+	if is_multiplayer_authority():
+		AudioManager.play_kick()
+	
 	if is_blocking:
 		# Kick breaks blocking and causes stagger
 		is_blocking = false
@@ -591,6 +629,10 @@ func _broadcast_death(killer_id: int) -> void:
 	is_dead = true
 	deaths += 1
 	visible = false
+	
+	# Play death sound
+	AudioManager.play_death()
+	
 	if is_multiplayer_authority():
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	# Notify game manager via group instead of fragile parent chain.

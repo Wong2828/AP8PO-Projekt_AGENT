@@ -206,6 +206,9 @@ func _on_combo_achieved(combo_count: int) -> void:
 		_combo_label.text = "COMBO x%d" % combo_count
 		_combo_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
 	_combo_timer = COMBO_DISPLAY_DURATION
+	
+	# Play combo sound
+	AudioManager.play_combo(combo_count)
 
 
 func _on_dodge_performed() -> void:
