@@ -61,7 +61,14 @@ func _find_local_player() -> void:
 	if players_node == null:
 		return
 	for child in players_node.get_children():
-		if child.is_multiplayer_authority():
+		# In bot practice mode, local player has ID 1
+		var is_local := false
+		if NetworkManager.is_bot_practice_mode:
+			is_local = child.player_peer_id == 1
+		else:
+			is_local = child.is_multiplayer_authority()
+		
+		if is_local:
 			_local_player = child
 			_local_player.hit_received.connect(_on_hit_received)
 			_local_player.parry_success.connect(_on_parry_success)
