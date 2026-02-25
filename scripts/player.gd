@@ -341,6 +341,9 @@ func _perform_attack(attack_type: int) -> void:
 	if _combo_timer > 0 and _last_attack_type != AttackType.NONE:
 		_combo_count += 1
 		combo_achieved.emit(_combo_count)
+		# Visual combo effect
+		if _combo_count >= 2:
+			VFXManager.create_combo_effect(global_position, _combo_count)
 	else:
 		_combo_count = 1
 	
@@ -392,9 +395,10 @@ func apply_stagger() -> void:
 		_swing_progress = 0.0
 		sword_pivot.rotation = Vector3.ZERO
 	
-	# Play stagger sound
+	# Play stagger sound and effect
 	if is_multiplayer_authority():
 		AudioManager.play_stagger()
+	VFXManager.create_stagger_effect(global_position)
 
 
 # ---- sword swing animation ----
@@ -548,9 +552,10 @@ func receive_hit(amount: int, attacker_id: int, attack_type: int = AttackType.SL
 		_just_parried = true
 		parry_success.emit()
 		
-		# Play parry sound
+		# Play parry sound and effect
 		if is_multiplayer_authority():
 			AudioManager.play_block(true)
+		VFXManager.create_parry_effect(global_position + Vector3(0, 1.5, 0))
 		
 		# Stagger the attacker on parry
 		var attacker := get_parent().get_node_or_null(str(attacker_id))
@@ -558,17 +563,19 @@ func receive_hit(amount: int, attacker_id: int, attack_type: int = AttackType.SL
 			attacker.apply_stagger.rpc_id(attacker_id)
 	elif is_blocking:
 		final_damage = int(amount * BLOCK_MULT)
-		# Play block sound
+		# Play block sound and effect
 		if is_multiplayer_authority():
 			AudioManager.play_block(false)
+		VFXManager.create_block_effect(global_position + Vector3(0, 1.5, 0))
 		# Heavy attacks and overheads can stagger through block
 		if attack_type in [AttackType.HEAVY, AttackType.OVERHEAD] and stamina < 20:
 			apply_stagger()
 			final_damage = int(amount * 0.5)
 	else:
-		# Play hit sound
+		# Play hit sound and effect
 		if is_multiplayer_authority():
 			AudioManager.play_hit(attack_type in [AttackType.HEAVY, AttackType.OVERHEAD])
+		VFXManager.create_hit_effect(global_position + Vector3(0, 1.2, 0))
 		# Apply stagger on heavy hits when not blocking
 		if attack_type in [AttackType.HEAVY, AttackType.OVERHEAD]:
 			apply_stagger()
@@ -630,8 +637,9 @@ func _broadcast_death(killer_id: int) -> void:
 	deaths += 1
 	visible = false
 	
-	# Play death sound
+	# Play death sound and effect
 	AudioManager.play_death()
+	VFXManager.create_death_effect(global_position + Vector3(0, 1.0, 0))
 	
 	if is_multiplayer_authority():
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)

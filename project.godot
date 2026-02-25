@@ -19,6 +19,7 @@ config/icon="res://icon.svg"
 
 NetworkManager="*res://scripts/network_manager.gd"
 AudioManager="*res://scripts/audio_manager.gd"
+VFXManager="*res://scripts/vfx_manager.gd"
 
 [display]
 
