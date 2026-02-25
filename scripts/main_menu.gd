@@ -68,11 +68,12 @@ func _build_ui() -> void:
 	# Controls hint
 	var hint := Label.new()
 	hint.text = (
-		"Controls:  WASD – move   Mouse – look   LMB – attack   MMB – heavy attack\n"
-		+ "RMB – block   F – kick   Space – jump   Shift – sprint   Tab – scoreboard   ESC – cursor"
+		"MOVEMENT: WASD – move  |  Mouse – look  |  Space – jump  |  Shift – sprint  |  Ctrl – dodge\n"
+		+ "COMBAT: LMB – slash  |  MMB – heavy  |  R – stab  |  T – overhead  |  Q – feint  |  F – kick  |  RMB – block/parry\n"
+		+ "OTHER: Tab – scoreboard  |  Y – chat  |  ESC – toggle cursor"
 	)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.add_theme_font_size_override("font_size", 13)
+	hint.add_theme_font_size_override("font_size", 12)
 	hint.add_theme_color_override("font_color", Color(0.55, 0.55, 0.55))
 	vbox.add_child(hint)
 

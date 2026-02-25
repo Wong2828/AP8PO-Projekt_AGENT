@@ -3,6 +3,8 @@ extends CanvasLayer
 const MAX_FEED_ENTRIES := 6
 const FEED_DURATION    := 5.0
 const HIT_INDICATOR_DURATION := 0.6
+const PARRY_FLASH_DURATION := 0.3
+const COMBO_DISPLAY_DURATION := 2.0
 
 var _health_bar: ProgressBar
 var _health_label: Label
@@ -23,6 +25,22 @@ var _hit_top: ColorRect
 var _hit_bottom: ColorRect
 var _hit_timer: float = 0.0
 var _block_icon: Label
+
+# New combat HUD elements
+var _parry_indicator: Label
+var _parry_timer: float = 0.0
+var _combo_label: Label
+var _combo_timer: float = 0.0
+var _stagger_indicator: Label
+var _dodge_indicator: Label
+var _attack_type_label: Label
+var _chat_panel: Panel
+var _chat_input: LineEdit
+var _chat_vbox: VBoxContainer
+var _chat_visible: bool = false
+var _match_timer_label: Label
+var _match_end_panel: Panel
+var _match_end_label: Label
 
 var _local_player: CharacterBody3D = null
 
@@ -46,6 +64,10 @@ func _find_local_player() -> void:
 		if child.is_multiplayer_authority():
 			_local_player = child
 			_local_player.hit_received.connect(_on_hit_received)
+			_local_player.parry_success.connect(_on_parry_success)
+			_local_player.combo_achieved.connect(_on_combo_achieved)
+			_local_player.dodge_performed.connect(_on_dodge_performed)
+			_local_player.attack_started.connect(_on_attack_started)
 			break
 
 
@@ -67,6 +89,27 @@ func _update_hud(delta: float) -> void:
 	_esc_hint.visible = not dead
 
 	_block_icon.visible = _local_player.is_blocking and not dead
+	
+	# Update parry indicator - show when parry window is active
+	if _local_player._parry_active:
+		_parry_indicator.visible = true
+		_parry_indicator.text = "⚔ PARRY READY"
+		_parry_indicator.add_theme_color_override("font_color", Color(0.2, 1.0, 0.4))
+	elif _parry_timer > 0:
+		_parry_timer -= delta
+		_parry_indicator.visible = true
+	else:
+		_parry_indicator.visible = false
+	
+	# Update stagger indicator
+	_stagger_indicator.visible = _local_player._is_staggered
+	
+	# Update combo display
+	if _combo_timer > 0:
+		_combo_timer -= delta
+		_combo_label.modulate.a = min(1.0, _combo_timer / COMBO_DISPLAY_DURATION * 2)
+	else:
+		_combo_label.visible = false
 
 	if dead:
 		_dead_label.text = "☠  You were slain  ☠\nRespawning in a few seconds…"
@@ -91,6 +134,24 @@ func _update_hud(delta: float) -> void:
 	_scoreboard_panel.visible = Input.is_action_pressed("scoreboard")
 	if _scoreboard_panel.visible:
 		_refresh_scoreboard()
+	
+	# Update match timer
+	var game_node = get_parent()
+	if game_node and game_node.has_method("get_match_time"):
+		var time_left: float = game_node.get_match_time()
+		var minutes := int(time_left) / 60
+		var seconds := int(time_left) % 60
+		_match_timer_label.text = "%02d:%02d" % [minutes, seconds]
+		if time_left < 60:
+			_match_timer_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+		else:
+			_match_timer_label.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
+	
+	# Chat toggle
+	if Input.is_action_just_pressed("chat") and not _chat_visible:
+		_show_chat()
+	elif Input.is_action_just_pressed("ui_cancel") and _chat_visible:
+		_hide_chat()
 
 
 func _on_hit_received(attacker_pos: Vector3) -> void:
@@ -125,6 +186,105 @@ func _on_hit_received(attacker_pos: Vector3) -> void:
 	_hit_timer = HIT_INDICATOR_DURATION
 
 
+func _on_parry_success() -> void:
+	_parry_indicator.text = "✓ PARRIED!"
+	_parry_indicator.add_theme_color_override("font_color", Color(0.2, 1.0, 0.2))
+	_parry_indicator.visible = true
+	_parry_timer = PARRY_FLASH_DURATION
+
+
+func _on_combo_achieved(combo_count: int) -> void:
+	_combo_label.visible = true
+	_combo_label.modulate.a = 1.0
+	if combo_count >= 5:
+		_combo_label.text = "⚔ GODLIKE COMBO x%d! ⚔" % combo_count
+		_combo_label.add_theme_color_override("font_color", Color(1.0, 0.2, 0.2))
+	elif combo_count >= 3:
+		_combo_label.text = "⚔ COMBO x%d! ⚔" % combo_count
+		_combo_label.add_theme_color_override("font_color", Color(1.0, 0.6, 0.2))
+	else:
+		_combo_label.text = "COMBO x%d" % combo_count
+		_combo_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	_combo_timer = COMBO_DISPLAY_DURATION
+
+
+func _on_dodge_performed() -> void:
+	# Brief dodge indicator flash
+	_dodge_indicator.visible = true
+	get_tree().create_timer(0.3).timeout.connect(
+		func() -> void:
+			if is_instance_valid(_dodge_indicator):
+				_dodge_indicator.visible = false
+	)
+
+
+func _on_attack_started(attack_type: int) -> void:
+	var attack_names := {
+		0: "",
+		1: "Slash ←",
+		2: "Slash →",
+		3: "Overhead",
+		4: "Stab",
+		5: "Heavy",
+		6: "Kick"
+	}
+	_attack_type_label.text = attack_names.get(attack_type, "")
+	_attack_type_label.visible = attack_type != 0
+	
+	get_tree().create_timer(0.5).timeout.connect(
+		func() -> void:
+			if is_instance_valid(_attack_type_label):
+				_attack_type_label.visible = false
+	)
+
+
+func _show_chat() -> void:
+	_chat_visible = true
+	_chat_panel.visible = true
+	_chat_input.grab_focus()
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+
+
+func _hide_chat() -> void:
+	_chat_visible = false
+	_chat_panel.visible = false
+	_chat_input.release_focus()
+	_chat_input.text = ""
+	if _local_player and not _local_player.is_dead:
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+
+
+func _on_chat_submitted(text: String) -> void:
+	if text.strip_edges().is_empty():
+		_hide_chat()
+		return
+	
+	var game_node = get_parent()
+	if game_node and game_node.has_method("send_chat_message"):
+		game_node.send_chat_message(text.strip_edges())
+	
+	_hide_chat()
+
+
+func show_chat_message(sender: String, message: String) -> void:
+	var entry := Label.new()
+	entry.text = "[%s]: %s" % [sender, message]
+	entry.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
+	entry.add_theme_font_size_override("font_size", 14)
+	_chat_vbox.add_child(entry)
+	
+	# Limit chat history
+	while _chat_vbox.get_child_count() > 20:
+		_chat_vbox.get_child(0).queue_free()
+	
+	# Auto-fade old messages
+	get_tree().create_timer(15.0).timeout.connect(
+		func() -> void:
+			if is_instance_valid(entry):
+				entry.queue_free()
+	)
+
+
 func show_kill(killer: String, victim: String) -> void:
 	var entry := Label.new()
 	entry.text = "⚔  %s  slew  %s" % [killer, victim]
@@ -138,6 +298,12 @@ func show_kill(killer: String, victim: String) -> void:
 			if is_instance_valid(entry):
 				entry.queue_free()
 	)
+
+
+func show_match_end(winner: String) -> void:
+	_match_end_panel.visible = true
+	_match_end_label.text = "⚔ MATCH OVER ⚔\n\n%s" % winner
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 
 func _refresh_scoreboard() -> void:
@@ -188,6 +354,56 @@ func _build_hud() -> void:
 	_block_icon.position += Vector2(-42, 24)
 	_block_icon.visible = false
 	add_child(_block_icon)
+	
+	# Parry indicator (centre, above crosshair)
+	_parry_indicator = Label.new()
+	_parry_indicator.text = "⚔ PARRY READY"
+	_parry_indicator.add_theme_font_size_override("font_size", 16)
+	_parry_indicator.add_theme_color_override("font_color", Color(0.2, 1.0, 0.4))
+	_parry_indicator.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_parry_indicator.position += Vector2(-50, -50)
+	_parry_indicator.visible = false
+	add_child(_parry_indicator)
+	
+	# Stagger indicator (centre)
+	_stagger_indicator = Label.new()
+	_stagger_indicator.text = "💫 STAGGERED"
+	_stagger_indicator.add_theme_font_size_override("font_size", 22)
+	_stagger_indicator.add_theme_color_override("font_color", Color(1.0, 0.4, 0.4))
+	_stagger_indicator.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_stagger_indicator.position += Vector2(-60, 50)
+	_stagger_indicator.visible = false
+	add_child(_stagger_indicator)
+	
+	# Dodge indicator
+	_dodge_indicator = Label.new()
+	_dodge_indicator.text = "⟳ DODGE"
+	_dodge_indicator.add_theme_font_size_override("font_size", 16)
+	_dodge_indicator.add_theme_color_override("font_color", Color(0.5, 0.8, 1.0))
+	_dodge_indicator.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_dodge_indicator.position += Vector2(-30, 70)
+	_dodge_indicator.visible = false
+	add_child(_dodge_indicator)
+	
+	# Combo label (centre-right)
+	_combo_label = Label.new()
+	_combo_label.text = "COMBO x2"
+	_combo_label.add_theme_font_size_override("font_size", 28)
+	_combo_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	_combo_label.set_anchor(SIDE_LEFT, 0.7)
+	_combo_label.set_anchor(SIDE_TOP, 0.4)
+	_combo_label.visible = false
+	add_child(_combo_label)
+	
+	# Attack type indicator (below crosshair)
+	_attack_type_label = Label.new()
+	_attack_type_label.text = ""
+	_attack_type_label.add_theme_font_size_override("font_size", 14)
+	_attack_type_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
+	_attack_type_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_attack_type_label.position += Vector2(-30, 90)
+	_attack_type_label.visible = false
+	add_child(_attack_type_label)
 
 	# Health bar (bottom-left)
 	var hp_bg := ColorRect.new()
@@ -288,6 +504,28 @@ func _build_hud() -> void:
 	_kills_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_kills_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	kd_bg.add_child(_kills_label)
+	
+	# Match timer (top-center)
+	var timer_bg := ColorRect.new()
+	timer_bg.color = Color(0, 0, 0, 0.55)
+	timer_bg.set_anchor(SIDE_LEFT, 0.5)
+	timer_bg.set_anchor(SIDE_TOP, 0)
+	timer_bg.set_anchor(SIDE_RIGHT, 0.5)
+	timer_bg.set_anchor(SIDE_BOTTOM, 0)
+	timer_bg.offset_left = -50
+	timer_bg.offset_top = 8
+	timer_bg.offset_right = 50
+	timer_bg.offset_bottom = 42
+	add_child(timer_bg)
+	
+	_match_timer_label = Label.new()
+	_match_timer_label.text = "10:00"
+	_match_timer_label.add_theme_font_size_override("font_size", 22)
+	_match_timer_label.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
+	_match_timer_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_match_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_match_timer_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	timer_bg.add_child(_match_timer_label)
 
 	# Kill feed (top-right)
 	var feed_bg := ColorRect.new()
@@ -378,8 +616,8 @@ func _build_hud() -> void:
 
 	# ESC hint (bottom-centre)
 	_esc_hint = Label.new()
-	_esc_hint.text = "ESC – toggle cursor   |   TAB – scoreboard   |   F – kick   |   MMB – heavy attack"
-	_esc_hint.add_theme_font_size_override("font_size", 12)
+	_esc_hint.text = "LMB–attack  RMB–block/parry  F–kick  R–stab  T–overhead  Q–feint  Ctrl–dodge  Y–chat  Tab–score"
+	_esc_hint.add_theme_font_size_override("font_size", 11)
 	_esc_hint.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
 	_esc_hint.set_anchor(SIDE_LEFT,   0)
 	_esc_hint.set_anchor(SIDE_TOP,    1)
@@ -389,6 +627,74 @@ func _build_hud() -> void:
 	_esc_hint.offset_bottom = -4
 	_esc_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(_esc_hint)
+	
+	# Chat panel (bottom-left, above health bar)
+	_chat_panel = Panel.new()
+	_chat_panel.set_anchor(SIDE_LEFT, 0)
+	_chat_panel.set_anchor(SIDE_TOP, 1)
+	_chat_panel.set_anchor(SIDE_RIGHT, 0)
+	_chat_panel.set_anchor(SIDE_BOTTOM, 1)
+	_chat_panel.offset_left = 16
+	_chat_panel.offset_top = -280
+	_chat_panel.offset_right = 400
+	_chat_panel.offset_bottom = -150
+	var chat_style := StyleBoxFlat.new()
+	chat_style.bg_color = Color(0.05, 0.05, 0.05, 0.85)
+	chat_style.border_color = Color(0.3, 0.3, 0.3, 0.6)
+	chat_style.set_border_width_all(1)
+	_chat_panel.add_theme_stylebox_override("panel", chat_style)
+	_chat_panel.visible = false
+	add_child(_chat_panel)
+	
+	_chat_vbox = VBoxContainer.new()
+	_chat_vbox.set_anchor(SIDE_RIGHT, 1)
+	_chat_vbox.set_anchor(SIDE_BOTTOM, 1)
+	_chat_vbox.offset_left = 8
+	_chat_vbox.offset_top = 8
+	_chat_vbox.offset_right = -8
+	_chat_vbox.offset_bottom = -40
+	_chat_vbox.add_theme_constant_override("separation", 2)
+	_chat_panel.add_child(_chat_vbox)
+	
+	_chat_input = LineEdit.new()
+	_chat_input.placeholder_text = "Type message and press Enter..."
+	_chat_input.set_anchor(SIDE_LEFT, 0)
+	_chat_input.set_anchor(SIDE_TOP, 1)
+	_chat_input.set_anchor(SIDE_RIGHT, 1)
+	_chat_input.set_anchor(SIDE_BOTTOM, 1)
+	_chat_input.offset_left = 8
+	_chat_input.offset_top = -32
+	_chat_input.offset_right = -8
+	_chat_input.offset_bottom = -4
+	_chat_input.text_submitted.connect(_on_chat_submitted)
+	_chat_panel.add_child(_chat_input)
+	
+	# Match end overlay
+	_match_end_panel = Panel.new()
+	_match_end_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_match_end_panel.visible = false
+	var match_end_style := StyleBoxFlat.new()
+	match_end_style.bg_color = Color(0.05, 0.02, 0.02, 0.9)
+	_match_end_panel.add_theme_stylebox_override("panel", match_end_style)
+	add_child(_match_end_panel)
+	
+	_match_end_label = Label.new()
+	_match_end_label.text = "⚔ MATCH OVER ⚔"
+	_match_end_label.add_theme_font_size_override("font_size", 48)
+	_match_end_label.add_theme_color_override("font_color", Color(0.95, 0.75, 0.15))
+	_match_end_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_match_end_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_match_end_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_match_end_panel.add_child(_match_end_label)
+	
+	var back_btn := Button.new()
+	back_btn.text = "RETURN TO MENU"
+	back_btn.custom_minimum_size = Vector2(200, 52)
+	back_btn.set_anchor(SIDE_LEFT, 0.5)
+	back_btn.set_anchor(SIDE_TOP, 0.7)
+	back_btn.offset_left = -100
+	back_btn.pressed.connect(_on_menu_btn_pressed)
+	_match_end_panel.add_child(back_btn)
 
 
 func _make_hit_indicator(side: int) -> ColorRect:
