@@ -126,7 +126,7 @@ func _update_hud(delta: float) -> void:
 	# Hit direction indicator fade.
 	if _hit_timer > 0:
 		_hit_timer -= delta
-		var alpha := clamp(_hit_timer / HIT_INDICATOR_DURATION, 0.0, 1.0) * 0.55
+		var alpha : float = clamp(_hit_timer / HIT_INDICATOR_DURATION, 0.0, 1.0) * 0.55
 		_hit_left.color.a = _hit_left.color.a * alpha / max(_hit_left.color.a, 0.01) if _hit_left.color.a > 0 else 0
 		_hit_right.color.a = _hit_right.color.a * alpha / max(_hit_right.color.a, 0.01) if _hit_right.color.a > 0 else 0
 		_hit_top.color.a = _hit_top.color.a * alpha / max(_hit_top.color.a, 0.01) if _hit_top.color.a > 0 else 0

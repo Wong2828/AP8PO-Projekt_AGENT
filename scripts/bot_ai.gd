@@ -209,7 +209,7 @@ func _execute_movement(delta: float) -> void:
 	
 	# Apply movement to player
 	if move_dir.length() > 0.1:
-		var speed := player.SPEED
+		var speed : float = player.SPEED
 		player.velocity.x = move_dir.x * speed
 		player.velocity.z = move_dir.z * speed
 	else:
